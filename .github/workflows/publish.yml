@@ -1,0 +1,49 @@
+name: Publish site
+
+# Runs when the private source repo pushes a new encrypted build.
+# (No path filter: a force-pushed single-commit history can skip path-filtered runs.)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Decrypt the site
+        id: site
+        if: hashFiles('site.tar.gz.enc') != ''
+        env:
+          SITE_KEY: ${{ secrets.SITE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir site
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:SITE_KEY -in site.tar.gz.enc | tar -xzf - -C site
+          touch site/.nojekyll
+
+      - uses: actions/configure-pages@v6
+        if: steps.site.outcome == 'success'
+
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.site.outcome == 'success'
+        with:
+          path: ./site
+
+      - id: deployment
+        if: steps.site.outcome == 'success'
+        uses: actions/deploy-pages@v5
